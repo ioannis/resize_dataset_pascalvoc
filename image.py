@@ -8,8 +8,8 @@ from math import floor
 
 def process_image(file_path, output_path, x, y, save_box_images, mode):
     (base_dir, file_name, ext) = get_file_name(file_path)
-    image_path = '{}/{}.{}'.format(base_dir, file_name, ext)
-    xml = '{}/{}.xml'.format(base_dir, file_name)
+    image_path = os.path.join(base_dir, f"{file_name}.{ext}")
+    xml = os.path.join(base_dir, f"{file_name}.xml")
     try:
         resize(
             image_path,
@@ -40,7 +40,7 @@ def resize(image_path,
            ):
 
     image = cv2.imread(image_path)
-
+    delta_h = delta_w = top = bottom = left = right = 0
     mode = mode and mode.lower()
     # Standard resize mode
     if mode is None or mode == 'size':
@@ -73,43 +73,63 @@ def resize(image_path,
                 src=image,
                 dsize=(0, 0), dst=None,
                 fx=scale_x, fy=scale_y, interpolation=interp)
+        elif mode == 'pad':
+            old_size = image.shape[:2]
+            ratio = float(newSize[0]) / max(old_size)
+            scale_x = scale_y = ratio
+            new_size = tuple([int(x * ratio) for x in old_size])
+            desired = int(newSize[0])
+            image = cv2.resize(image, (new_size[1], new_size[0]))
+            delta_w = desired - new_size[1]
+            delta_h = desired - new_size[0]
+            top, bottom = int(delta_h // 2), int(delta_h - (delta_h // 2))
+            left, right = int(delta_w // 2), int(delta_w - (delta_w // 2))
+            color = [0, 0, 0]
+            image = cv2.copyMakeBorder(image, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
         else:
             raise Exception(f"Invalid resize mode: {mode}")
 
     newBoxes = []
-    xmlRoot = ET.parse(xml_path).getroot()
-    xmlRoot.find('filename').text = image_path.split('/')[-1]
-    size_node = xmlRoot.find('size')
-    size_node.find('width').text = str(newSize[0])
-    size_node.find('height').text = str(newSize[1])
+    has_xml = os.path.exists(xml_path)
+    if has_xml:
+        xmlRoot = ET.parse(xml_path).getroot()
+        xmlRoot.find('filename').text = os.path.basename(image_path)
+        size_node = xmlRoot.find('size')
+        if mode == 'pad':
+            size_node.find('width').text = str(desired)
+            size_node.find('height').text = str(desired)
+        else:
+            size_node.find('width').text = str(newSize[0])
+            size_node.find('height').text = str(newSize[1])
 
-    for member in xmlRoot.findall('object'):
-        bndbox = member.find('bndbox')
+        for member in xmlRoot.findall('object'):
+            bndbox = member.find('bndbox')
 
-        xmin = bndbox.find('xmin')
-        ymin = bndbox.find('ymin')
-        xmax = bndbox.find('xmax')
-        ymax = bndbox.find('ymax')
-        
-        xmin.text = str(int(np.round(float(xmin.text) * scale_x)))
-        ymin.text = str(int(np.round(float(ymin.text) * scale_y)))
-        xmax.text = str(int(np.round(float(xmax.text) * scale_x)))
-        ymax.text = str(int(np.round(float(ymax.text) * scale_y)))
+            xmin = bndbox.find('xmin')
+            ymin = bndbox.find('ymin')
+            xmax = bndbox.find('xmax')
+            ymax = bndbox.find('ymax')
 
-        newBoxes.append([
-            1,
-            0,
-            int(float(xmin.text)),
-            int(float(ymin.text)),
-            int(float(xmax.text)),
-            int(float(ymax.text))
+            xmin.text = str(int(np.round(float(xmin.text) * scale_x + left)))
+            ymin.text = str(int(np.round(float(ymin.text) * scale_y + top)))
+            xmax.text = str(int(np.round(float(xmax.text) * scale_x + left)))
+            ymax.text = str(int(np.round(float(ymax.text) * scale_y + top)))
+
+            newBoxes.append([
+                1,
+                0,
+                int(float(xmin.text)),
+                int(float(ymin.text)),
+                int(float(xmax.text)),
+                int(float(ymax.text))
             ])
+
+        tree = ET.ElementTree(xmlRoot)
+        tree.write(os.path.join(output_path, f"{file_name}.xml"))
 
     (_, file_name, ext) = get_file_name(image_path)
     cv2.imwrite(os.path.join(output_path, '.'.join([file_name, ext])), image)
 
-    tree = ET.ElementTree(xmlRoot)
-    tree.write('{}/{}.xml'.format(output_path, file_name, ext))
-    if int(save_box_images):
-        save_path = '{}/boxes_images/boxed_{}'.format(output_path, ''.join([file_name, '.', ext]))
+    if int(save_box_images) and has_xml:
+        save_path = os.path.join(output_path, 'boxes_images', f"boxed_{file_name}.{ext}")
         draw_box(newBoxes, image, save_path)
