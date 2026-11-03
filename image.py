@@ -25,9 +25,11 @@ def process_image(file_path, output_path, x, y, save_box_images, mode):
 
 
 def draw_box(boxes, image, path):
+    # Make a copy so we don't modify the source image if reused
+    box_image = image.copy()
     for i in range(0, len(boxes)):
-        cv2.rectangle(image, (boxes[i][2], boxes[i][3]), (boxes[i][4], boxes[i][5]), (255, 0, 0), 1)
-    cv2.imwrite(path, image)
+        cv2.rectangle(box_image, (boxes[i][2], boxes[i][3]), (boxes[i][4], boxes[i][5]), (255, 0, 0), 1)
+    cv2.imwrite(path, box_image)
 
 
 def resize(image_path,
@@ -39,6 +41,7 @@ def resize(image_path,
            verbose=False
            ):
 
+    (_, file_name, ext) = get_file_name(image_path)
     image = cv2.imread(image_path)
     delta_h = delta_w = top = bottom = left = right = 0
     mode = mode and mode.lower()
@@ -127,7 +130,6 @@ def resize(image_path,
         tree = ET.ElementTree(xmlRoot)
         tree.write(os.path.join(output_path, f"{file_name}.xml"))
 
-    (_, file_name, ext) = get_file_name(image_path)
     cv2.imwrite(os.path.join(output_path, '.'.join([file_name, ext])), image)
 
     if int(save_box_images) and has_xml:
